@@ -3,22 +3,22 @@
 namespace App\Http\Controllers;
 
 use Illuminate\Http\Request;
-use App\Models\User;
 use Illuminate\Support\Facades\Hash;
-use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Session;
+use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Password;
 use Illuminate\Support\Str;
-use Illuminate\Support\Facades\Mail;
-use Carbon\Carbon;
+use App\Models\User;
 
 class AuthController extends Controller
 {
-    // User registration
+    // User Registration
     public function register(Request $request)
     {
         $request->validate([
             'name' => 'required|string|max:255',
-            'username' => 'required|string|max:255|unique:users,username',
-            'email' => 'required|email|unique:users,email',
+            'username' => 'required|string|max:255|unique:users',
+            'email' => 'required|string|email|max:255|unique:users',
             'password' => 'required|string|min:6|confirmed',
         ]);
 
@@ -29,55 +29,74 @@ class AuthController extends Controller
             'password' => Hash::make($request->password),
         ]);
 
-        return redirect('/login')->with('success', 'Account created successfully!');
+        return redirect('/login')->with('success', 'Account created successfully! You can now login.');
     }
 
-    // User login (email OR username)
+    // User Login
     public function login(Request $request)
     {
         $request->validate([
-            'login' => 'required|string', // email or username
-            'password' => 'required',
+            'email' => 'required|email',
+            'password' => 'required|string',
         ]);
 
-        $fieldType = filter_var($request->login, FILTER_VALIDATE_EMAIL) ? 'email' : 'username';
-
-        $user = User::where($fieldType, $request->login)->first();
+        $user = User::where('email', $request->email)->first();
 
         if ($user && Hash::check($request->password, $user->password)) {
-            session(['user_id' => $user->id]);
-
-            // Flash success message then redirect
-            return redirect('/resume')->with('success', 'Login successful!');
+            Session::put('user_id', $user->id);
+            return redirect('/resume');
         }
 
-        return back()->withErrors(['login' => 'Invalid Username/Email or Password']);
+        return back()->withErrors(['Invalid email or password.']);
     }
 
-    // Reset password
+    // Show Forgot Password Form
+    public function showForgotPasswordForm()
+    {
+        return view('forgot-password');
+    }
+
+    // Send Reset Password Link
+    public function sendResetLink(Request $request)
+    {
+        $request->validate(['email' => 'required|email']);
+
+        $status = Password::sendResetLink(
+            $request->only('email')
+        );
+
+        return $status === Password::RESET_LINK_SENT
+            ? back()->with(['success' => __($status)])
+            : back()->withErrors(['email' => __($status)]);
+    }
+
+    // Show Reset Password Form
+    public function showResetPasswordForm($token)
+    {
+        return view('reset-password', ['token' => $token]);
+    }
+
+    // Handle Password Reset
     public function resetPassword(Request $request)
     {
         $request->validate([
             'token' => 'required',
-            'email' => 'required|email|exists:users,email',
-            'password' => 'required|string|min:6|confirmed'
+            'email' => 'required|email',
+            'password' => 'required|string|min:6|confirmed',
         ]);
 
-        $record = DB::table('password_reset_tokens')
-            ->where('email', $request->email)
-            ->where('token', $request->token)
-            ->first();
+        $status = Password::reset(
+            $request->only('email', 'password', 'password_confirmation', 'token'),
+            function ($user, $password) {
+                $user->forceFill([
+                    'password' => Hash::make($password),
+                    'remember_token' => Str::random(60),
+                ])->save();
+            }
+        );
 
-        if (!$record) {
-            return back()->withErrors(['email' => 'Invalid token or email']);
-        }
-
-        $user = User::where('email', $request->email)->first();
-        $user->password = Hash::make($request->password);
-        $user->save();
-
-        DB::table('password_reset_tokens')->where('email', $request->email)->delete();
-
-        return redirect('/login')->with('success', 'Password reset successfully! You can now login.');
+        return $status === Password::PASSWORD_RESET
+            ? redirect('/login')->with('success', __($status))
+            : back()->withErrors(['email' => [__($status)]]);
     }
 }

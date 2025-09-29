@@ -29,16 +29,11 @@ Route::get('/login', function() {
 Route::post('/login', [AuthController::class, 'login']);
 
 // Forgot Password Routes
-Route::get('/forgot-password', function() {
-    return view('forgot-password');
-});
+Route::get('/forgot-password', [AuthController::class, 'showForgotPasswordForm'])->name('password.request');
 Route::post('/forgot-password', [AuthController::class, 'sendResetLink'])->name('password.email');
 
 // Reset Password Routes
-Route::get('/reset-password/{token}', function($token) {
-    return view('reset-password', ['token' => $token]);
-})->name('password.reset');
-
+Route::get('/reset-password/{token}', [AuthController::class, 'showResetPasswordForm'])->name('password.reset');
 Route::post('/reset-password', [AuthController::class, 'resetPassword'])->name('password.update');
 
 // Resume Page (Protected)
